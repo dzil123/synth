@@ -1,6 +1,8 @@
 use rand::Rng;
 use rodio::Source;
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
+use std::f32::consts::{PI, TAU};
+use std::panic::Location;
 
 const BITRATE: u32 = 44100;
 const BITRATE_F: f32 = BITRATE as _;
@@ -57,12 +59,46 @@ where
     }
 }
 
+// scale (-1 < x < 1) to (a < ans < b)
+fn scale(x: f32, a: f32, b: f32) -> f32 {
+    (b + a + x * (b - a)) / 2.0
+}
+
 #[derive(Default)]
-struct Synth(f32, f32, f32);
+struct Synth {
+    hashmap: FxHashMap<Location<'static>, f32>,
+}
 
 impl Synth {
-    fn new(freq: f32) -> Self {
-        Synth(0.0, 0.0, freq)
+    fn new() -> Self {
+        Synth {
+            ..Default::default()
+        }
+    }
+
+    #[track_caller]
+    fn get(&mut self, period: f32, start: f32, low: f32, high: f32) -> f32 {
+        // value is stored between 0 and len
+        let len = high - low;
+        *self
+            .hashmap
+            .entry(*Location::caller())
+            .and_modify(|v| {
+                *v += period * len / BITRATE_F;
+                *v %= len
+            })
+            .or_insert(start - low)
+            + low
+    }
+
+    #[track_caller]
+    fn get_sin(&mut self, period: f32) -> f32 {
+        self.get(period, 0.0, 0.0, TAU).sin()
+    }
+
+    fn _next(&mut self) -> f32 {
+        let lfo = self.get_sin(10.0);
+        self.get_sin(scale(lfo, 440.0, 660.0))
     }
 }
 
@@ -70,32 +106,7 @@ impl Iterator for Synth {
     type Item = f32;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut x: f32 = rand::thread_rng().gen_range(-1.0..1.0);
-        if self.1 > 0.5 {
-            x = x.signum();
-        }
-        self.1 += self.0 / BITRATE_F;
-        self.1 %= 1.0;
-
-        self.0 += ((self.0 / 1.5) + 0.4) * (0.2 / BITRATE_F);
-
-        return Some(x);
-        // return Some(rand::thread_rng().gen_range(-1.0f32..1.0).signum());
-
-        // self.0 += 880.0 / S;
-        self.0 += (std::f32::consts::TAU * ((self.1.sin() * 0.5) + 1.0) * self.2) / BITRATE_F;
-        self.1 += (std::f32::consts::TAU / 1.0) / BITRATE_F;
-        // self.1 += (std::f32::consts::TAU / (1.0 + (self.0 % 0.5))) / S;
-        // self.1 = 0.0;
-
-        self.0 %= std::f32::consts::TAU;
-        self.1 %= std::f32::consts::TAU;
-
-        Some(self.0.sin().signum())
-        // Some(0.0)
-        // None
-        // Some(rand::thread_rng().gen_range(-1.0..1.0))
-        // Some((rand::random::<f32>() - 0.5) * 2.0)
+        Some(self._next())
     }
 }
 
@@ -114,7 +125,6 @@ impl Source for Synth {
 
     fn total_duration(&self) -> Option<std::time::Duration> {
         None
-        // Some(std::time::Duration::SECOND)
     }
 }
 
@@ -128,17 +138,9 @@ fn play_live<T: Source + Iterator<Item = f32> + Send + 'static>(
     match num_seconds {
         Some(x) => std::thread::sleep(std::time::Duration::from_secs(x)),
         None => loop {
-            std::thread::sleep(std::time::Duration::new(u64::MAX, u32::MAX))
+            std::thread::sleep(std::time::Duration::new(u64::MAX, 0))
         },
     }
-}
-
-#[track_caller]
-fn bruh() {
-    let mut x = HashMap::new();
-    let loc = std::panic::Location::caller();
-    x.insert(loc, 123);
-    println!("called on {}", loc.line());
 }
 
 fn save_to_wav<T: Source + Iterator<Item = f32>>(mut source: T, filename: &str, num_seconds: f32) {
@@ -151,29 +153,27 @@ fn save_to_wav<T: Source + Iterator<Item = f32>>(mut source: T, filename: &str, 
 
     let mut writer = hound::WavWriter::create(filename, spec).unwrap();
     for x in 0..((BITRATE_F * num_seconds) as _) {
-        writer.write_sample(source.next().unwrap()).unwrap();
+        writer
+            .write_sample(match source.next() {
+                Some(x) => x,
+                None => {
+                    println!("source ended early at {} sec", (x as f32) / BITRATE_F);
+                    break;
+                }
+            })
+            .unwrap();
 
         if (x % (BITRATE * 5)) == 0 {
             println!("{}...", x / BITRATE);
         }
     }
+
+    writer.finalize().unwrap();
 }
 
 fn main() {
-    bruh();
-    // let source = Synth(0.0, 1.0);
-    // let source = Synth::default();
-    let source = Synth::new(440.0);
-    // let source = ManyChannel::new([880.0, 440.0].iter().map(|&x| Synth::new(x)).collect());
+    let new_source = || Synth::new();
 
-    play_live(source, Some(10));
-    bruh();
-    // save_to_wav(source, "noise.wav", 60.0);
-}
-
-#[derive(Copy, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct FooBarBaz<'a> {
-    file: &'a str,
-    line: u32,
-    col: u32,
+    // save_to_wav(new_source(), "sin440.wav", 1.0);
+    play_live(new_source(), None);
 }
