@@ -399,6 +399,7 @@ dependencies = [
  "hound",
  "rand",
  "rodio",
+ "rustc-hash",
 ]
 
 [[package]]

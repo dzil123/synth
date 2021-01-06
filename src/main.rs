@@ -1,8 +1,11 @@
-#![feature(duration_constants)]
-
-use rand::prelude::*;
+use rand::Rng;
 use rodio::Source;
+use std::collections::HashMap;
 
+const BITRATE: u32 = 44100;
+const BITRATE_F: f32 = BITRATE as _;
+
+// assuming each synth is only 1 channel
 struct ManyChannel<T> {
     synths: Vec<T>,
     current_channel: usize,
@@ -10,7 +13,7 @@ struct ManyChannel<T> {
 
 impl<T: Source> ManyChannel<T>
 where
-    <T as Iterator>::Item: rodio::Sample,
+    T::Item: rodio::Sample,
 {
     fn new(synths: Vec<T>) -> Self {
         Self {
@@ -22,7 +25,7 @@ where
 
 impl<T: Source> Iterator for ManyChannel<T>
 where
-    <T as Iterator>::Item: rodio::Sample,
+    T::Item: rodio::Sample,
 {
     type Item = T::Item;
 
@@ -67,23 +70,21 @@ impl Iterator for Synth {
     type Item = f32;
 
     fn next(&mut self) -> Option<Self::Item> {
-        const S: f32 = 44100.0;
-
         let mut x: f32 = rand::thread_rng().gen_range(-1.0..1.0);
         if self.1 > 0.5 {
             x = x.signum();
         }
-        self.1 += self.0 / S;
+        self.1 += self.0 / BITRATE_F;
         self.1 %= 1.0;
 
-        self.0 += ((self.0 / 1.5) + 0.4) * (0.2 / S);
+        self.0 += ((self.0 / 1.5) + 0.4) * (0.2 / BITRATE_F);
 
         return Some(x);
         // return Some(rand::thread_rng().gen_range(-1.0f32..1.0).signum());
 
         // self.0 += 880.0 / S;
-        self.0 += (std::f32::consts::TAU * ((self.1.sin() * 0.5) + 1.0) * self.2) / S;
-        self.1 += (std::f32::consts::TAU / 1.0) / S;
+        self.0 += (std::f32::consts::TAU * ((self.1.sin() * 0.5) + 1.0) * self.2) / BITRATE_F;
+        self.1 += (std::f32::consts::TAU / 1.0) / BITRATE_F;
         // self.1 += (std::f32::consts::TAU / (1.0 + (self.0 % 0.5))) / S;
         // self.1 = 0.0;
 
@@ -108,7 +109,7 @@ impl Source for Synth {
     }
 
     fn sample_rate(&self) -> u32 {
-        44100
+        BITRATE
     }
 
     fn total_duration(&self) -> Option<std::time::Duration> {
@@ -118,8 +119,8 @@ impl Source for Synth {
 }
 
 fn play_live<T: Source + Iterator<Item = f32> + Send + 'static>(
-    num_seconds: Option<u64>,
     source: T,
+    num_seconds: Option<u64>,
 ) {
     let (_stream, stream_handle) = rodio::OutputStream::try_default().unwrap();
     stream_handle.play_raw(source.convert_samples()).unwrap();
@@ -127,30 +128,52 @@ fn play_live<T: Source + Iterator<Item = f32> + Send + 'static>(
     match num_seconds {
         Some(x) => std::thread::sleep(std::time::Duration::from_secs(x)),
         None => loop {
-            std::thread::sleep(std::time::Duration::MAX)
+            std::thread::sleep(std::time::Duration::new(u64::MAX, u32::MAX))
         },
     }
 }
 
-fn save_to_wav<T: Source + Iterator<Item = f32>>(filename: &str, num_seconds: f32, mut source: T) {
+#[track_caller]
+fn bruh() {
+    let mut x = HashMap::new();
+    let loc = std::panic::Location::caller();
+    x.insert(loc, 123);
+    println!("called on {}", loc.line());
+}
+
+fn save_to_wav<T: Source + Iterator<Item = f32>>(mut source: T, filename: &str, num_seconds: f32) {
     let spec = hound::WavSpec {
-        channels: 1,
-        sample_rate: 44100,
+        channels: source.channels(),
+        sample_rate: BITRATE,
         bits_per_sample: 32,
         sample_format: hound::SampleFormat::Float,
     };
 
     let mut writer = hound::WavWriter::create(filename, spec).unwrap();
-    for _ in 0..((44100.0 * num_seconds) as usize) {
+    for x in 0..((BITRATE_F * num_seconds) as _) {
         writer.write_sample(source.next().unwrap()).unwrap();
+
+        if (x % (BITRATE * 5)) == 0 {
+            println!("{}...", x / BITRATE);
+        }
     }
 }
 
 fn main() {
+    bruh();
     // let source = Synth(0.0, 1.0);
     // let source = Synth::default();
     let source = Synth::new(440.0);
     // let source = ManyChannel::new([880.0, 440.0].iter().map(|&x| Synth::new(x)).collect());
-    // stream_handle.play_raw(source).unwrap();
-    save_to_wav("noise.wav", 60.0, source);
+
+    play_live(source, Some(10));
+    bruh();
+    // save_to_wav(source, "noise.wav", 60.0);
+}
+
+#[derive(Copy, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct FooBarBaz<'a> {
+    file: &'a str,
+    line: u32,
+    col: u32,
 }
