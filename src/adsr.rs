@@ -1,4 +1,4 @@
-use crate::util::{lerp, BITRATE, BITRATE_F};
+use crate::util::{lerp, BITRATE_F};
 
 // all units seconds except percent
 #[derive(Clone, PartialEq)]
@@ -11,12 +11,16 @@ pub struct ADSRParams {
 }
 
 impl ADSRParams {
-    pub fn build(self) -> ADSR {
+    fn assert(&self) {
         assert!(self.attack_length >= 0.0);
         assert!(self.decay_length >= 0.0);
         assert!(0.0 <= self.sustain_percent && self.sustain_percent <= 1.0);
         assert!(self.sustain_length >= 0.0);
         assert!(self.release_length >= 0.0);
+    }
+
+    pub fn build(self) -> ADSR {
+        self.assert();
 
         ADSR {
             params: self,
@@ -37,7 +41,7 @@ impl Default for ADSRParams {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum State {
     Attack,
     Decay,
@@ -60,6 +64,18 @@ pub struct ADSR {
 }
 
 impl ADSR {
+    pub fn copy(&self) -> Self {
+        self.params.clone().build()
+    }
+
+    pub fn reset(&mut self) {
+        *self = self.copy();
+    }
+
+    pub fn is_end(&self) -> bool {
+        self.state == State::End
+    }
+
     fn switch_state(&mut self, state: State) {
         self.state = state;
         self.progress = 0;

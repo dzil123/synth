@@ -33,7 +33,7 @@ where
 
 impl<T: Source> Source for ManyChannel<T>
 where
-    <T as Iterator>::Item: rodio::Sample,
+    T::Item: rodio::Sample,
 {
     fn current_frame_len(&self) -> Option<usize> {
         self.synths[self.current_channel].current_frame_len()
