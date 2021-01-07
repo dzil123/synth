@@ -1,6 +1,7 @@
 use rand::Rng;
 use rodio::Source;
 use rustc_hash::FxHashMap;
+use std::cell::RefCell;
 use std::f32::consts::{PI, TAU};
 use std::panic::Location;
 
@@ -64,9 +65,22 @@ fn scale(x: f32, a: f32, b: f32) -> f32 {
     (b + a + x * (b - a)) / 2.0
 }
 
+fn clamp(x: f32) -> f32 {
+    x.min(1.0).max(-1.0)
+}
+
+fn clamp01(x: f32) -> f32 {
+    x.min(1.0).max(0.0)
+}
+
+fn distort(x: f32, a: f32) -> f32 {
+    // clamp(x * (1.0 + a)) // 0 < a < inf
+    clamp(x / (1.0 - a)) // 0 < a < 1
+}
+
 #[derive(Default)]
 struct Synth {
-    hashmap: FxHashMap<Location<'static>, f32>,
+    hashmap: RefCell<FxHashMap<Location<'static>, f32>>,
 }
 
 impl Synth {
@@ -77,14 +91,15 @@ impl Synth {
     }
 
     #[track_caller]
-    fn get(&mut self, period: f32, start: f32, low: f32, high: f32) -> f32 {
+    fn get(&self, freq: f32, start: f32, low: f32, high: f32) -> f32 {
         // value is stored between 0 and len
         let len = high - low;
         *self
             .hashmap
+            .borrow_mut()
             .entry(*Location::caller())
             .and_modify(|v| {
-                *v += period * len / BITRATE_F;
+                *v += freq * len / BITRATE_F;
                 *v %= len
             })
             .or_insert(start - low)
@@ -92,13 +107,30 @@ impl Synth {
     }
 
     #[track_caller]
-    fn get_sin(&mut self, period: f32) -> f32 {
-        self.get(period, 0.0, 0.0, TAU).sin()
+    fn get_sin(&self, freq: f32) -> f32 {
+        self.get(freq, 0.0, 0.0, TAU).sin()
+    }
+
+    #[track_caller]
+    fn get_tri(&self, freq: f32) -> f32 {
+        let x = self.get(freq, 0.0, -1.0, 3.0);
+
+        if x > 1.0 {
+            2.0 - x
+        } else {
+            x
+        }
+    }
+
+    #[track_caller]
+    fn get_saw(&self, freq: f32) -> f32 {
+        self.get(freq, 0.0, -1.0, 1.0)
     }
 
     fn _next(&mut self) -> f32 {
-        let lfo = self.get_sin(10.0);
-        self.get_sin(scale(lfo, 440.0, 660.0))
+        // self.get_sin(scale(self.get_sin(9.0 / 7.0), 440.0, 660.0))
+        //     * self.get_sin(scale(self.get_sin(11.0 / 7.0), 350.0, 243.123))
+        distort(self.get_sin(440.0), scale(self.get_sin(0.5), 0.0, 1.0))
     }
 }
 
@@ -174,6 +206,6 @@ fn save_to_wav<T: Source + Iterator<Item = f32>>(mut source: T, filename: &str, 
 fn main() {
     let new_source = || Synth::new();
 
-    // save_to_wav(new_source(), "sin440.wav", 1.0);
+    // save_to_wav(new_source(), "saw440.wav", 10.0);
     play_live(new_source(), None);
 }
