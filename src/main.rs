@@ -5,78 +5,11 @@ use std::cell::RefCell;
 use std::f32::consts::{PI, TAU};
 use std::panic::Location;
 
-const BITRATE: u32 = 44100;
-const BITRATE_F: f32 = BITRATE as _;
+mod adsr;
+mod manychannel;
+mod util;
 
-// assuming each synth is only 1 channel
-struct ManyChannel<T> {
-    synths: Vec<T>,
-    current_channel: usize,
-}
-
-impl<T: Source> ManyChannel<T>
-where
-    T::Item: rodio::Sample,
-{
-    fn new(synths: Vec<T>) -> Self {
-        Self {
-            synths,
-            current_channel: 0,
-        }
-    }
-}
-
-impl<T: Source> Iterator for ManyChannel<T>
-where
-    T::Item: rodio::Sample,
-{
-    type Item = T::Item;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let result = self.synths[self.current_channel].next();
-        self.current_channel = (self.current_channel + 1) % self.synths.len();
-        result
-    }
-}
-
-impl<T: Source> Source for ManyChannel<T>
-where
-    <T as Iterator>::Item: rodio::Sample,
-{
-    fn current_frame_len(&self) -> Option<usize> {
-        self.synths[self.current_channel].current_frame_len()
-    }
-
-    fn channels(&self) -> u16 {
-        self.synths.len() as _
-    }
-
-    fn sample_rate(&self) -> u32 {
-        self.synths[self.current_channel].sample_rate()
-    }
-
-    fn total_duration(&self) -> Option<std::time::Duration> {
-        self.synths[self.current_channel].total_duration()
-    }
-}
-
-// scale (-1 < x < 1) to (a < ans < b)
-fn scale(x: f32, a: f32, b: f32) -> f32 {
-    (b + a + x * (b - a)) / 2.0
-}
-
-fn clamp(x: f32) -> f32 {
-    x.min(1.0).max(-1.0)
-}
-
-fn clamp01(x: f32) -> f32 {
-    x.min(1.0).max(0.0)
-}
-
-fn distort(x: f32, a: f32) -> f32 {
-    // clamp(x * (1.0 + a)) // 0 < a < inf
-    clamp(x / (1.0 - a)) // 0 < a < 1
-}
+use util::*;
 
 #[derive(Default)]
 struct Synth {

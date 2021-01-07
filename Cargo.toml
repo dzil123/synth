@@ -1,15 +1,14 @@
 [package]
-name = "foo"
-version = "0.1.0"
+name = "synth"
+version = "0.2.0"
 authors = ["dzil123 <5725958+dzil123@users.noreply.github.com>"]
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-hound = "3.4.0"
-rand = "0.8.1"
-# cpal = "0"
-rodio = "0.13.0"
-rustc-hash = "1.1.0"
-# bevy = "0.4.0"
+hound = "~3.4.0"
+rand = "~0.8.1"
+rustc-hash = "~1.1.0"
+
+[dependencies.rodio]
+version = "~0.13.0"
+default_features = false
