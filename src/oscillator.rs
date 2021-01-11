@@ -1,5 +1,4 @@
-use std::any::Any;
-use std::any::TypeId;
+use std::any::{Any, TypeId};
 use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::f32::consts::{PI, TAU};
@@ -11,9 +10,39 @@ use crate::util::{AnyClone, BITRATE, BITRATE_F};
 
 type HashMap<T> = FxHashMap<Location<'static>, T>;
 
-#[derive(Default)]
+struct AnyHashMap {
+    inner: Box<dyn Any + Send>,
+    clone_func: Box<dyn Fn(&Self) -> Self + Send + Sync>,
+}
+
+impl AnyHashMap {
+    fn default<T: Any + Default + Clone + Send + Sync>() -> Self {
+        Self::new::<T>(HashMap::<T>::default())
+    }
+
+    fn new<T: Any + Default + Clone + Send + Sync>(val: HashMap<T>) -> Self {
+        let clone_func = |v: &Self| Self::new(v.downcast_ref::<T>().clone());
+
+        Self {
+            inner: Box::new(val),
+            clone_func: Box::new(clone_func),
+        }
+    }
+
+    fn downcast_ref<T: Any + Default + Clone + Send + Sync>(&self) -> &HashMap<T> {
+        self.inner.downcast_ref::<HashMap<T>>().unwrap()
+    }
+}
+
+impl Clone for AnyHashMap {
+    fn clone(&self) -> Self {
+        (self.clone_func)(self)
+    }
+}
+
+#[derive(Default, Clone)]
 pub struct Oscillator {
-    hashmap_meta: RefCell<FxHashMap<TypeId, Box<dyn Any + Send>>>, // effective signature: HashMap<T::TypeId, HashMap<T>>
+    hashmap_meta: RefCell<FxHashMap<TypeId, AnyHashMap>>, // effective signature: HashMap<T::TypeId, HashMap<T>>
 }
 
 impl Oscillator {
@@ -22,15 +51,15 @@ impl Oscillator {
 
     fn hashmap<T, U, V>(&self, func: U) -> V
     where
-        T: Any + Default + Send + 'static,
+        T: Any + Default + Clone + Send + Sync,
         U: FnOnce(&mut HashMap<T>) -> V,
     {
         let mut hashmap_meta = self.hashmap_meta.borrow_mut();
         let hashmap = hashmap_meta
             .entry(TypeId::of::<T>())
-            .or_insert_with(|| Box::new(HashMap::<T>::default()));
+            .or_insert_with(|| AnyHashMap::default::<T>());
 
-        let hashmap = hashmap.downcast_mut::<HashMap<T>>().unwrap();
+        let hashmap = hashmap.inner.downcast_mut::<HashMap<T>>().unwrap();
 
         func(hashmap)
     }
@@ -39,7 +68,7 @@ impl Oscillator {
     fn unique_caller<T, U>(&self, default: U, modify: T) -> U
     where
         T: FnOnce(&mut U),
-        U: Copy + Default + Send + 'static,
+        U: Copy + Default + Send + Sync + 'static,
     {
         let loc = Location::caller();
 

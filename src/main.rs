@@ -15,6 +15,7 @@ use crate::oscillator::Oscillator;
 use crate::synth_template::{SynthTrait, SynthTraitDefault};
 use crate::util::{distort, lerp, scale};
 
+#[derive(Clone)]
 struct Synth {
     adsr: ADSR,
 }

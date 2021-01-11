@@ -83,14 +83,14 @@ impl<T: Default> Default for SynthRoot<T> {
     }
 }
 
-// impl<T: Clone> Clone for SynthRoot<T> {
-//     fn clone(&self) -> Self {
-//         Self {
-//             osc: self.osc.clone(),
-//             synth: self.synth.clone(),
-//         }
-//     }
-// }
+impl<T: Clone> Clone for SynthRoot<T> {
+    fn clone(&self) -> Self {
+        Self {
+            osc: self.osc.clone(),
+            synth: self.synth.clone(),
+        }
+    }
+}
 
 impl<T> SynthTrait for T
 where
