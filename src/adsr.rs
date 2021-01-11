@@ -8,6 +8,7 @@ pub struct ADSRParams {
     pub sustain_percent: f32,
     pub sustain_length: f32,
     pub release_length: f32,
+    pub quiet_length: f32,
 }
 
 impl ADSRParams {
@@ -27,6 +28,32 @@ impl ADSRParams {
             ..Default::default()
         }
     }
+
+    pub fn zero() -> Self {
+        Self {
+            attack_length: 0.0,
+            decay_length: 0.0,
+            sustain_percent: 0.0,
+            sustain_length: 0.0,
+            release_length: 0.0,
+            quiet_length: 0.0,
+        }
+    }
+
+    pub fn flat(length: f32) -> Self {
+        Self {
+            sustain_percent: 1.0,
+            sustain_length: length,
+            ..Self::zero()
+        }
+    }
+
+    pub fn flat2(length: f32, quiet: f32) -> Self {
+        Self {
+            quiet_length: quiet,
+            ..Self::flat(length)
+        }
+    }
 }
 
 impl Default for ADSRParams {
@@ -37,6 +64,7 @@ impl Default for ADSRParams {
             sustain_percent: 0.7,
             sustain_length: 1.25,
             release_length: 1.0,
+            quiet_length: 0.5,
         }
     }
 }
@@ -47,6 +75,7 @@ enum State {
     Decay,
     Sustain,
     Release,
+    Quiet,
     End,
 }
 
@@ -124,7 +153,7 @@ impl Iterator for ADSR {
                 let duration_f = self.params.release_length * BITRATE_F;
 
                 if self.progress >= (duration_f as u32) {
-                    self.switch_state(State::End);
+                    self.switch_state(State::Quiet);
                     0.0
                 } else {
                     lerp(
@@ -134,7 +163,15 @@ impl Iterator for ADSR {
                     )
                 }
             }
-            State::End => 0.0,
+            State::Quiet => {
+                let duration_f = self.params.quiet_length * BITRATE_F;
+                if self.progress >= (duration_f as u32) {
+                    self.switch_state(State::End);
+                }
+                0.0
+            }
+            // State::End => 0.0,
+            State::End => return None,
         };
 
         self.progress += 1;

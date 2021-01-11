@@ -1,14 +1,16 @@
-use std::cell::RefCell;
-use std::f32::consts::{PI, TAU};
-use std::panic::Location;
-
 use rodio::Source;
-use rustc_hash::FxHashMap;
 
+use crate::oscillator::Oscillator;
 use crate::util::{BITRATE, BITRATE_F};
 
 pub trait SynthTrait {
-    fn next(&mut self, osc: &Oscillator) -> f32;
+    fn _next(&mut self, osc: &Oscillator) -> f32 {
+        0.0
+    }
+
+    fn next(&mut self, osc: &Oscillator) -> Option<f32> {
+        Some(self._next(osc))
+    }
 
     fn convert(self) -> SynthRoot<Self>
     where
@@ -32,53 +34,6 @@ pub trait SynthTraitDefault: SynthTrait + Default {
 
 impl<T: SynthTrait + Default> SynthTraitDefault for T {}
 
-#[derive(Default, Clone)]
-pub struct Oscillator {
-    hashmap: RefCell<FxHashMap<Location<'static>, f32>>,
-}
-
-impl Oscillator {
-    // everything here is &self even though it should be &mut self to avoid double mut borrow
-    // because &mut self doesnt allow nesting like osc.get_sin(osc.get_sin(440.0))
-
-    #[track_caller]
-    pub fn get(&self, freq: f32, start: f32, low: f32, high: f32) -> f32 {
-        // value is stored between 0 and len
-        let len = high - low;
-        *self
-            .hashmap
-            .borrow_mut()
-            .entry(*Location::caller())
-            .and_modify(|v| {
-                *v += freq * len / BITRATE_F;
-                *v %= len
-            })
-            .or_insert(start - low)
-            + low
-    }
-
-    #[track_caller]
-    pub fn get_sin(&self, freq: f32) -> f32 {
-        self.get(freq, 0.0, 0.0, TAU).sin()
-    }
-
-    #[track_caller]
-    pub fn get_tri(&self, freq: f32) -> f32 {
-        let x = self.get(freq, 0.0, -1.0, 3.0);
-
-        if x > 1.0 {
-            2.0 - x
-        } else {
-            x
-        }
-    }
-
-    #[track_caller]
-    pub fn get_saw(&self, freq: f32) -> f32 {
-        self.get(freq, 0.0, -1.0, 1.0)
-    }
-}
-
 pub struct SynthRoot<T> {
     osc: Oscillator,
     synth: T,
@@ -97,7 +52,7 @@ impl<T: SynthTrait> Iterator for SynthRoot<T> {
     type Item = f32;
 
     fn next(&mut self) -> Option<Self::Item> {
-        Some(self.synth.next(&self.osc))
+        self.synth.next(&self.osc)
     }
 }
 
@@ -141,7 +96,18 @@ impl<T> SynthTrait for T
 where
     T: FnMut(&Oscillator) -> f32,
 {
-    fn next(&mut self, osc: &Oscillator) -> f32 {
+    fn _next(&mut self, osc: &Oscillator) -> f32 {
         (self)(osc)
     }
 }
+
+// why rust
+
+// impl<T> SynthTrait for T
+// where
+//     T: FnMut(&Oscillator) -> Option<f32>,
+// {
+//     fn next(&mut self, osc: &Oscillator) -> Option<f32> {
+//         (self)(osc)
+//     }
+// }
