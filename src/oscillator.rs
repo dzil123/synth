@@ -9,62 +9,41 @@ use rustc_hash::FxHashMap;
 
 use crate::util::{AnyClone, BITRATE, BITRATE_F};
 
-// type HashMap<T> = RefCell<FxHashMap<Location<'static>, T>>;
 type HashMap<T> = FxHashMap<Location<'static>, T>;
 
 #[derive(Default)]
 pub struct Oscillator {
-    // hashmap: RefCell<FxHashMap<Location<'static>, f32>>,
-    hashmap: RefCell<HashMap<f32>>,
-    hashmap_meta: RefCell<FxHashMap<TypeId, Box<dyn Any + Send>>>,
+    hashmap_meta: RefCell<FxHashMap<TypeId, Box<dyn Any + Send>>>, // effective signature: HashMap<T::TypeId, HashMap<T>>
 }
 
 impl Oscillator {
     // everything here is &self even though it should be &mut self to avoid double mut borrow
     // because &mut self doesnt allow nesting like osc.get_sin(osc.get_sin(440.0))
 
-    // fn hashmap<T, U, V, X>(&self, func: U, default: X) -> V
-    // where
-    //     T: Any + Default + Send + 'static,
-    //     // Box<(dyn Any + Send + 'static)>: Default, // this requires #![feature(trivial_bounds)], to allow entry.or_default()
-    //     U: FnOnce(&mut HashMap<T>) -> V,
-    //     X: FnOnce() -> HashMap<T>,
-    // {
     fn hashmap<T, U, V>(&self, func: U) -> V
     where
         T: Any + Default + Send + 'static,
-        // Box<(dyn Any + Send + 'static)>: Default, // this requires #![feature(trivial_bounds)], to allow entry.or_default()
         U: FnOnce(&mut HashMap<T>) -> V,
     {
         let mut hashmap_meta = self.hashmap_meta.borrow_mut();
-        // let hashmap = hashmap_meta.entry(TypeId::of::<T>()).or_default();
-        // let hashmap = hashmap_meta
-        //     .entry(TypeId::of::<T>())
-        //     .or_insert_with(|| Default::default());
         let hashmap = hashmap_meta
             .entry(TypeId::of::<T>())
-            // .or_insert_with(|| Box::new(default()));
             .or_insert_with(|| Box::new(HashMap::<T>::default()));
 
-        // println!("{}", std::any::type_name_of_val(&hashmap));
-
-        let hashmap: Option<&mut HashMap<T>> = hashmap.downcast_mut();
-        let hashmap = hashmap.unwrap();
+        let hashmap = hashmap.downcast_mut::<HashMap<T>>().unwrap();
 
         func(hashmap)
     }
 
     #[track_caller]
-    fn unique_caller<T: FnOnce(&mut f32)>(&self, default: f32, modify: T) -> f32 {
-        // self.hashmap(|_: &mut HashMap<f32>| 0.0, || Default::default());
-        self.hashmap(|_: &mut HashMap<f32>| 0.0);
+    fn unique_caller<T, U>(&self, default: U, modify: T) -> U
+    where
+        T: FnOnce(&mut U),
+        U: Copy + Default + Send + 'static,
+    {
+        let loc = Location::caller();
 
-        *self
-            .hashmap
-            .borrow_mut()
-            .entry(*Location::caller())
-            .and_modify(modify)
-            .or_insert(default)
+        self.hashmap(|hashmap| *hashmap.entry(*loc).and_modify(modify).or_insert(default))
     }
 
     #[track_caller]
@@ -110,7 +89,7 @@ impl Oscillator {
     }
 
     #[track_caller]
-    pub fn incrementing(&self) -> f32 {
-        self.unique_caller(123456789.1, |v| *v += 1.0)
+    pub fn incrementing(&self) -> u32 {
+        self.unique_caller(0, |v| *v += 1)
     }
 }
