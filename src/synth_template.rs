@@ -136,3 +136,12 @@ impl<T: Clone> Clone for SynthRoot<T> {
         }
     }
 }
+
+impl<T> SynthTrait for T
+where
+    T: FnMut(&Oscillator) -> f32,
+{
+    fn next(&mut self, osc: &Oscillator) -> f32 {
+        (self)(osc)
+    }
+}
