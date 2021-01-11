@@ -1,4 +1,6 @@
 #![allow(unused_imports, dead_code)]
+#![feature(trivial_bounds)]
+#![feature(type_name_of_val)]
 
 mod adsr;
 mod audio_util;
@@ -38,6 +40,11 @@ impl SynthTrait for Synth {
 
         // let amnt = 4.0;
         // osc.get_sin(scale(osc.get_sin(freq * ratio), freq / amnt, freq * amnt)) * amplitude
+
+        if osc.rising_edge(amplitude - 0.001) {
+            // println!("{}", osc.get_saw(0.1));
+            println!("{}", osc.incrementing());
+        }
 
         let amnt = 8.0; // number of halfsteps
         let amnt = scale(osc.get_sin(0.1), 1.0, 100.0);
