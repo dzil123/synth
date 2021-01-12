@@ -1,6 +1,4 @@
 #![allow(unused_imports, dead_code)]
-#![feature(trivial_bounds)]
-#![feature(type_name_of_val)]
 
 mod adsr;
 mod audio_util;
