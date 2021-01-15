@@ -4,7 +4,7 @@ use crate::oscillator::Oscillator;
 use crate::util::{BITRATE, BITRATE_F};
 
 pub trait SynthTrait {
-    fn _next(&mut self, osc: &Oscillator) -> f32 {
+    fn _next(&mut self, _osc: &Oscillator) -> f32 {
         0.0
     }
 

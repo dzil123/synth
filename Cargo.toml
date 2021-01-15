@@ -8,6 +8,8 @@ edition = "2018"
 hound = "~3.4.0"
 rand = "~0.8.1"
 rustc-hash = "~1.1.0"
+wmidi = "~4.0.1"
+midir = "~0.7.0"
 
 [dependencies.rodio]
 version = "~0.13.0"
