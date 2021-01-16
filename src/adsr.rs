@@ -109,6 +109,21 @@ impl ADSR {
         self.state = state;
         self.progress = 0;
     }
+
+    // if true, the ending of this envelope can be cut short (interrupted)
+    pub fn is_done(&self) -> bool {
+        use State::*;
+        match self.state {
+            Release | Quiet | End => true,
+            _ => false,
+        }
+    }
+
+    pub fn release(&mut self) {
+        if !self.is_done() {
+            self.switch_state(State::Release);
+        }
+    }
 }
 
 impl Iterator for ADSR {

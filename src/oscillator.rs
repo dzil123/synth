@@ -12,15 +12,15 @@ type HashMap<T> = FxHashMap<Location<'static>, T>;
 
 struct AnyHashMap {
     inner: Box<dyn Any + Send>,
-    clone_func: Box<dyn Fn(&Self) -> Self + Send + Sync>,
+    clone_func: Box<dyn Fn(&Self) -> Self + Send>,
 }
 
 impl AnyHashMap {
-    fn default<T: Any + Default + Clone + Send + Sync>() -> Self {
+    fn default<T: Any + Default + Clone + Send>() -> Self {
         Self::new::<T>(HashMap::<T>::default())
     }
 
-    fn new<T: Any + Default + Clone + Send + Sync>(val: HashMap<T>) -> Self {
+    fn new<T: Any + Default + Clone + Send >(val: HashMap<T>) -> Self {
         let clone_func = |v: &Self| Self::new(v.downcast_ref::<T>().clone());
 
         Self {
@@ -29,7 +29,7 @@ impl AnyHashMap {
         }
     }
 
-    fn downcast_ref<T: Any + Default + Clone + Send + Sync>(&self) -> &HashMap<T> {
+    fn downcast_ref<T: Any + Default + Clone + Send>(&self) -> &HashMap<T> {
         self.inner.downcast_ref::<HashMap<T>>().unwrap()
     }
 }
@@ -51,7 +51,7 @@ impl Oscillator {
 
     fn hashmap<T, U, V>(&self, func: U) -> V
     where
-        T: Any + Default + Clone + Send + Sync,
+        T: Any + Default + Clone + Send,
         U: FnOnce(&mut HashMap<T>) -> V,
     {
         let mut hashmap_meta = self.hashmap_meta.borrow_mut();
@@ -68,7 +68,7 @@ impl Oscillator {
     fn unique_caller<T, U>(&self, default: U, modify: T) -> U
     where
         T: FnOnce(&mut U),
-        U: Copy + Default + Send + Sync + 'static,
+        U: Copy + Default + Send + 'static,
     {
         let loc = Location::caller();
 
