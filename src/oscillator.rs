@@ -1,12 +1,13 @@
 use std::any::{Any, TypeId};
-use std::cell::RefCell;
-use std::collections::hash_map::Entry;
+use std::cell::{Ref, RefCell, RefMut};
 use std::f32::consts::{PI, TAU};
+use std::ops::DerefMut;
 use std::panic::Location;
 
 use rustc_hash::FxHashMap;
 
-use crate::util::{AnyClone, BITRATE, BITRATE_F};
+use crate::util::{BITRATE, BITRATE_F};
+use crate::{ADSRParams, ADSR};
 
 type HashMap<T> = FxHashMap<Location<'static>, T>;
 
@@ -20,7 +21,7 @@ impl AnyHashMap {
         Self::new::<T>(HashMap::<T>::default())
     }
 
-    fn new<T: Any + Default + Clone + Send >(val: HashMap<T>) -> Self {
+    fn new<T: Any + Default + Clone + Send>(val: HashMap<T>) -> Self {
         let clone_func = |v: &Self| Self::new(v.downcast_ref::<T>().clone());
 
         Self {
@@ -49,19 +50,43 @@ impl Oscillator {
     // everything here is &self even though it should be &mut self to avoid double mut borrow
     // because &mut self doesnt allow nesting like osc.get_sin(osc.get_sin(440.0))
 
-    fn hashmap<T, U, V>(&self, func: U) -> V
+    // returns &mut HashMap<T> borrowed over the entirety of self.hashmap_meta
+    // any attempt to borrow self.hashmap_meta before this is dropped will panic
+    fn hashmap_mut<T>(&self) -> RefMut<HashMap<T>>
     where
         T: Any + Default + Clone + Send,
-        U: FnOnce(&mut HashMap<T>) -> V,
     {
-        let mut hashmap_meta = self.hashmap_meta.borrow_mut();
-        let hashmap = hashmap_meta
-            .entry(TypeId::of::<T>())
-            .or_insert_with(|| AnyHashMap::default::<T>());
+        let hashmap_meta = self.hashmap_meta.borrow_mut();
 
-        let hashmap = hashmap.inner.downcast_mut::<HashMap<T>>().unwrap();
+        let hashmap = RefMut::map(hashmap_meta, |hashmap_meta| {
+            hashmap_meta
+                .entry(TypeId::of::<T>())
+                .or_insert_with(|| AnyHashMap::default::<T>())
+        });
 
-        func(hashmap)
+        let hashmap = RefMut::map(hashmap, |hashmap| {
+            hashmap.inner.downcast_mut::<HashMap<T>>().unwrap()
+        });
+
+        hashmap
+    }
+
+    // returns &HashMap<T>, borrowed only immutably
+    // panics if hashmap_meta does not already include an entry for T
+    // ensure it does beforehand with hashmap_mut()
+    fn hashmap_ref<T>(&self) -> Ref<HashMap<T>>
+    where
+        T: Any + Default + Clone + Send,
+    {
+        let hashmap_meta = self.hashmap_meta.borrow();
+
+        let hashmap = Ref::map(hashmap_meta, |hashmap_meta| {
+            hashmap_meta.get(&TypeId::of::<T>()).unwrap()
+        });
+
+        let hashmap = Ref::map(hashmap, |hashmap| hashmap.downcast_ref::<T>());
+
+        hashmap
     }
 
     #[track_caller]
@@ -72,7 +97,11 @@ impl Oscillator {
     {
         let loc = Location::caller();
 
-        self.hashmap(|hashmap| *hashmap.entry(*loc).and_modify(modify).or_insert(default))
+        *self
+            .hashmap_mut()
+            .entry(*loc)
+            .and_modify(modify)
+            .or_insert(default)
     }
 
     #[track_caller]
@@ -120,5 +149,61 @@ impl Oscillator {
     #[track_caller]
     pub fn incrementing(&self) -> u32 {
         self.unique_caller(0, |v| *v += 1)
+    }
+
+    #[track_caller]
+    pub fn adsr(&self, adsr_params: ADSRParams) -> ADSRImposter {
+        let loc = Location::caller();
+        let mut hashmap: RefMut<HashMap<RefCell<ADSR>>> = self.hashmap_mut();
+
+        if hashmap.get(loc).is_none() {
+            hashmap.insert(*loc, RefCell::new(adsr_params.build()));
+        }
+
+        ADSRImposter(self, loc)
+    }
+
+    fn adsr_impl<T, U>(&self, loc: &Location<'static>, func: T) -> U
+    where
+        T: FnOnce(&mut ADSR) -> U,
+    {
+        let hashmap: Ref<HashMap<RefCell<ADSR>>> = self.hashmap_ref();
+        let adsr = Ref::map(hashmap, |hashmap| hashmap.get(loc).unwrap());
+        let mut adsr = adsr.borrow_mut();
+
+        func(adsr.deref_mut())
+    }
+}
+
+pub struct ADSRImposter<'a>(&'a Oscillator, &'static Location<'static>);
+
+impl<'a> ADSRImposter<'a> {
+    fn inner<T: FnOnce(&mut ADSR) -> U, U>(&self, func: T) -> U {
+        self.0.adsr_impl(self.1, func)
+    }
+
+    pub fn reset(&mut self) {
+        self.inner(|adsr| adsr.reset())
+    }
+
+    pub fn is_end(&self) -> bool {
+        self.inner(|adsr| adsr.is_end())
+    }
+
+    // if true, the ending of this envelope can be cut short (interrupted)
+    pub fn is_done(&self) -> bool {
+        self.inner(|adsr| adsr.is_done())
+    }
+
+    pub fn release(&mut self) {
+        self.inner(|adsr| adsr.release())
+    }
+}
+
+impl<'a> Iterator for ADSRImposter<'a> {
+    type Item = f32;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner(|adsr| adsr.next())
     }
 }
