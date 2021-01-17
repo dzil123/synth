@@ -10,6 +10,7 @@ rand = "~0.8.1"
 rustc-hash = "~1.1.0"
 wmidi = "~4.0.1"
 midir = "~0.7.0"
+ctrlc = { version = "~3.1.7", features = ["termination"] }
 
 [dependencies.rodio]
 version = "~0.13.0"

@@ -1,81 +1,139 @@
-#![allow(unused_imports, dead_code)]
+// #![allow(unused_imports, dead_code)]
+
+use std::sync::mpsc;
+
+use midir::MidiInputConnection;
+use wmidi::Note;
 
 mod adsr;
 mod audio_util;
 mod manychannel;
+mod midi_io;
 mod oscillator;
 mod synth_template;
 mod util;
 
 use crate::adsr::{ADSRParams, ADSR};
 use crate::audio_util::{play_live, save_to_wav};
+use crate::midi_io::{open_midi_input, SimpleMidiMessage};
 use crate::oscillator::Oscillator;
 use crate::synth_template::{SynthTrait, SynthTraitDefault};
 use crate::util::{distort, lerp, scale};
 
-#[derive(Clone)]
-struct Synth {
-    adsr: ADSR,
-}
+#[derive(Default, Clone)]
+struct Voice(f32);
 
-impl SynthTrait for Synth {
-    fn _next(&mut self, osc: &Oscillator) -> f32 {
-        let amplitude = self.adsr.next().unwrap_or_else(|| {
-            self.adsr.reset();
-            0.0
-        });
+impl SynthTrait for Voice {
+    fn next(&mut self, osc: &Oscillator) -> Option<f32> {
+        let vol = osc
+            .adsr(ADSRParams {
+                ..Default::default()
+            })
+            .next()?;
 
-        let ratio = 18.0;
-        let freq = 440.0;
-        // let freq = scale(
-        //     if amplitude == 0.0 {
-        //         0.0
-        //     } else {
-        //         osc.get_tri(0.071384612348723)
-        //     },
-        //     freq / 1.1,
-        //     freq * 1.1,
-        // );
+        let out = osc.get_sin(self.0).signum() * vol;
 
-        // let amnt = 4.0;
-        // osc.get_sin(scale(osc.get_sin(freq * ratio), freq / amnt, freq * amnt)) * amplitude
-
-        if osc.rising_edge(amplitude - 0.001) {
-            // println!("{}", osc.get_saw(0.1));
-            println!("{}", osc.incrementing());
-        }
-
-        let amnt = 8.0; // number of halfsteps
-        let amnt = scale(osc.get_sin(0.1), 1.0, 100.0);
-        const A: f32 = 1.059463094359;
-        osc.get_sin(scale(
-            osc.get_sin(freq * ratio),
-            freq * A.powf(-amnt),
-            freq * A.powf(amnt),
-        )) * amplitude
+        Some(out)
     }
 }
 
-impl Default for Synth {
+struct Synth<T: Iterator<Item = Note>> {
+    voice: Option<Voice>,
+    notes: T,
+}
+
+impl<T: Iterator<Item = Note>> Synth<T> {
+    fn new(notes: T) -> Self {
+        Self { voice: None, notes }
+    }
+}
+
+impl<T: Iterator<Item = Note>> SynthTrait for Synth<T> {
+    fn next(&mut self, osc: &Oscillator) -> Option<f32> {
+        loop {
+            if let Some(voice) = self.voice.as_mut() {
+                let out = voice.next(osc);
+                if out.is_some() {
+                    break out;
+                }
+                self.voice.take();
+                osc.reset();
+            }
+
+            if let Some(note) = self.notes.next() {
+                self.voice.replace(Voice(note.to_freq_f32()));
+                continue;
+            }
+
+            break None;
+        }
+    }
+}
+
+struct MidiSynth {
+    receiver: mpsc::Receiver<SimpleMidiMessage>,
+    connection: MidiInputConnection<()>,
+    voice: Option<Voice>,
+    current_note: Option<Note>,
+}
+
+impl Default for MidiSynth {
     fn default() -> Self {
+        let (receiver, connection) = open_midi_input();
         Self {
-            adsr: ADSRParams::flat2(0.2, 0.1).build()
-            // adsr: ADSRParams {
-            //     attack_length: 0.003,
-            //     decay_length: 0.008,
-            //     sustain_percent: 0.2,
-            //     sustain_length: 0.0,
-            //     release_length: 0.3,
-            //     quiet_length: 0.0,
-            // }
-            // .build(),
-            // adsr: ADSR::default(),
+            receiver,
+            connection,
+            voice: None,
+            current_note: None,
         }
     }
+}
+
+impl SynthTrait for MidiSynth {
+    fn next(&mut self, osc: &Oscillator) -> Option<f32> {
+        // idk whether to process all messages at once or only one per sample
+        match self.receiver.try_recv() {
+            Ok(SimpleMidiMessage::NoteOn(note)) => {
+                dbg!();
+                osc.reset();
+
+                self.voice.replace(Voice(note.to_freq_f32()));
+                self.current_note.replace(note);
+            }
+            Ok(SimpleMidiMessage::NoteOff(note))
+                if self.current_note.map(|curr| curr == note) == Some(true) =>
+            {
+                dbg!();
+                // self.voice.take();
+                osc.release();
+                // self.current_note.take();
+            }
+            Ok(SimpleMidiMessage::NoteOff(_)) => dbg!(),
+            Err(mpsc::TryRecvError::Empty) => {}
+            Err(mpsc::TryRecvError::Disconnected) => unreachable!(), // connection is not closed while MidiSynth is not dropped
+        };
+
+        if let Some(voice) = self.voice.as_mut() {
+            let out = voice.next(osc);
+            if out.is_some() {
+                return out;
+            }
+            self.voice.take();
+        }
+
+        Some(0.0)
+    }
+}
+
+fn notes() -> impl Iterator<Item = Note> {
+    use Note::*;
+
+    vec![C5, D5, E5, F5, G5, A5, B5, C6].into_iter().cycle()
 }
 
 fn main() {
-    let new_synth = Synth::create;
+    // let new_synth = || Synth::new(notes()).convert();
+    let new_synth = MidiSynth::create;
 
     // save_to_wav(new_synth(), "output.wav", 2.0);
     play_live(new_synth(), None);

@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -15,9 +17,14 @@ where
 
     match num_seconds {
         Some(x) => sleep(Duration::from_secs(x)),
-        None => loop {
-            sleep(Duration::new(u64::MAX, 0))
-        },
+        None => {
+            let running = Arc::new(AtomicBool::new(true));
+            let r = running.clone();
+            ctrlc::set_handler(move || r.store(false, Ordering::SeqCst)).unwrap();
+            while running.load(Ordering::SeqCst) {
+                sleep(Duration::from_millis(1));
+            }
+        }
     }
 }
 

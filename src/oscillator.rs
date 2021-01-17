@@ -173,6 +173,17 @@ impl Oscillator {
 
         func(adsr.deref_mut())
     }
+
+    pub fn release(&self) {
+        // todo: mark certain adsrs / oscillators as per-note, as opposed to lfo
+        for (_, adsr) in self.hashmap_mut::<RefCell<ADSR>>().iter_mut() {
+            adsr.borrow_mut().release();
+        }
+    }
+
+    pub fn reset(&self) {
+        self.hashmap_meta.borrow_mut().clear();
+    }
 }
 
 pub struct ADSRImposter<'a>(&'a Oscillator, &'static Location<'static>);
@@ -198,12 +209,8 @@ impl<'a> ADSRImposter<'a> {
     pub fn release(&mut self) {
         self.inner(|adsr| adsr.release())
     }
-}
 
-impl<'a> Iterator for ADSRImposter<'a> {
-    type Item = f32;
-
-    fn next(&mut self) -> Option<Self::Item> {
+    pub fn next(&mut self) -> Option<f32> {
         self.inner(|adsr| adsr.next())
     }
 }
