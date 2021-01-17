@@ -1,3 +1,6 @@
+use std::cell::RefCell;
+use std::time::Instant;
+
 use rodio::Source;
 
 use crate::oscillator::Oscillator;
@@ -34,9 +37,45 @@ pub trait SynthTraitDefault: SynthTrait + Default {
 
 impl<T: SynthTrait + Default> SynthTraitDefault for T {}
 
+#[derive(Clone)]
+struct InnerMut {
+    last_called: Instant,
+    count: u32,
+}
+
+impl Default for InnerMut {
+    fn default() -> Self {
+        Self {
+            last_called: Instant::now(),
+            count: 0,
+        }
+    }
+}
+
+impl InnerMut {
+    fn update_time(&mut self) {
+        // let now = Instant::now();
+        // let duration = now.duration_since(self.last_called);
+        // self.last_called = now;
+        // println!("update {:?}", duration);
+
+        const TIME: std::time::Duration = std::time::Duration::from_millis(10);
+
+        self.count += 1;
+        let now = Instant::now();
+        if now.duration_since(self.last_called) >= TIME {
+            self.last_called = now;
+            println!("update {:?} {}", TIME, self.count);
+
+            self.count = 0;
+        }
+    }
+}
+
 pub struct SynthRoot<T> {
     osc: Oscillator,
     synth: T,
+    inner_mut: RefCell<InnerMut>,
 }
 
 impl<T> SynthRoot<T> {
@@ -44,6 +83,7 @@ impl<T> SynthRoot<T> {
         Self {
             synth,
             osc: Default::default(),
+            inner_mut: RefCell::new(Default::default()),
         }
     }
 }
@@ -52,6 +92,8 @@ impl<T: SynthTrait> Iterator for SynthRoot<T> {
     type Item = f32;
 
     fn next(&mut self) -> Option<Self::Item> {
+        // self.inner_mut.borrow_mut().update_time();
+        // None
         self.synth.next(&self.osc)
     }
 }
@@ -61,6 +103,7 @@ where
     SynthRoot<T>: Iterator<Item = f32>,
 {
     fn current_frame_len(&self) -> Option<usize> {
+        // Some(BITRATE as usize * 10)
         None
     }
 
@@ -74,6 +117,7 @@ where
 
     fn total_duration(&self) -> Option<std::time::Duration> {
         None
+        // Some(std::time::Duration::new(1, 0))
     }
 }
 
@@ -88,6 +132,7 @@ impl<T: Clone> Clone for SynthRoot<T> {
         Self {
             osc: self.osc.clone(),
             synth: self.synth.clone(),
+            inner_mut: self.inner_mut.clone(),
         }
     }
 }
