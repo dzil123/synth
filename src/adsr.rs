@@ -18,6 +18,7 @@ impl ADSRParams {
         assert!(0.0 <= self.sustain_percent && self.sustain_percent <= 1.0);
         assert!(self.sustain_length >= 0.0);
         assert!(self.release_length >= 0.0);
+        assert!(self.quiet_length >= 0.0);
     }
 
     pub fn build(self) -> ADSR {
@@ -69,7 +70,7 @@ impl Default for ADSRParams {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum State {
     Attack,
     Decay,
@@ -120,16 +121,13 @@ impl ADSR {
     }
 
     pub fn release(&mut self) {
+        // allow to be released multiple times, with subsequent releases ignored
         if !self.is_done() {
             self.switch_state(State::Release);
         }
     }
-}
 
-impl Iterator for ADSR {
-    type Item = f32;
-
-    fn next(&mut self) -> Option<Self::Item> {
+    pub fn next(&mut self) -> Option<f32> {
         let x: f32 = match &self.state {
             State::Attack => {
                 let duration_f = self.params.attack_length * BITRATE_F;
