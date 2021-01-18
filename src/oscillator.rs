@@ -1,15 +1,14 @@
 use std::any::{Any, TypeId};
 use std::cell::{Ref, RefCell, RefMut};
-use std::f32::consts::{PI, TAU};
+use std::f32::consts::TAU;
 use std::ops::DerefMut;
-use std::panic::Location;
 
 use rustc_hash::FxHashMap;
 
-use crate::util::{BITRATE, BITRATE_F};
+use crate::util::{Index, BITRATE_F};
 use crate::{ADSRParams, ADSR};
 
-type HashMap<T> = FxHashMap<Location<'static>, T>;
+type HashMap<T> = FxHashMap<Index, T>;
 
 struct AnyHashMap {
     inner: Box<dyn Any + Send>,
@@ -95,11 +94,11 @@ impl Oscillator {
         T: FnOnce(&mut U),
         U: Copy + Default + Send + 'static,
     {
-        let loc = Location::caller();
+        let loc = Index::location();
 
         *self
             .hashmap_mut()
-            .entry(*loc)
+            .entry(loc)
             .and_modify(modify)
             .or_insert(default)
     }
@@ -153,22 +152,22 @@ impl Oscillator {
 
     #[track_caller]
     pub fn adsr(&self, adsr_params: ADSRParams) -> ADSRImposter {
-        let loc = Location::caller();
+        let loc = Index::location();
         let mut hashmap: RefMut<HashMap<RefCell<ADSR>>> = self.hashmap_mut();
 
-        if hashmap.get(loc).is_none() {
-            hashmap.insert(*loc, RefCell::new(adsr_params.build()));
+        if hashmap.get(&loc).is_none() {
+            hashmap.insert(loc, RefCell::new(adsr_params.build()));
         }
 
         ADSRImposter(self, loc)
     }
 
-    fn adsr_impl<T, U>(&self, loc: &Location<'static>, func: T) -> U
+    fn adsr_impl<T, U>(&self, loc: Index, func: T) -> U
     where
         T: FnOnce(&mut ADSR) -> U,
     {
         let hashmap: Ref<HashMap<RefCell<ADSR>>> = self.hashmap_ref();
-        let adsr = Ref::map(hashmap, |hashmap| hashmap.get(loc).unwrap());
+        let adsr = Ref::map(hashmap, |hashmap| hashmap.get(&loc).unwrap());
         let mut adsr = adsr.borrow_mut();
 
         func(adsr.deref_mut())
@@ -182,11 +181,24 @@ impl Oscillator {
     }
 
     pub fn reset(&self) {
+        // todo: maybe go into the sub_osc hashmap and clear those seperately to keep their allocated mem
         self.hashmap_meta.borrow_mut().clear();
+    }
+
+    pub fn sub_osc<T, U, V>(&self, index: V, mut func: T) -> U
+    where
+        T: FnMut(&Oscillator) -> U,
+        V: Into<Index>,
+    {
+        let loc = index.into();
+        let mut hashmap = self.hashmap_mut();
+        let osc = hashmap.entry(loc).or_default();
+
+        func(osc)
     }
 }
 
-pub struct ADSRImposter<'a>(&'a Oscillator, &'static Location<'static>);
+pub struct ADSRImposter<'a>(&'a Oscillator, Index);
 
 impl<'a> ADSRImposter<'a> {
     fn inner<T: FnOnce(&mut ADSR) -> U, U>(&self, func: T) -> U {

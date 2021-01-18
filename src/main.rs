@@ -1,8 +1,7 @@
-// #![allow(unused_imports, dead_code)]
+#![allow(unused_imports, dead_code)]
 
 use std::sync::mpsc;
 
-use midir::MidiInputConnection;
 use wmidi::Note;
 
 mod adsr;
@@ -15,7 +14,7 @@ mod util;
 
 use crate::adsr::{ADSRParams, ADSR};
 use crate::audio_util::{play_live, save_to_wav};
-use crate::midi_io::{open_midi_input, SimpleMidiMessage};
+use crate::midi_io::{MidiInput, SimpleMidiMessage};
 use crate::oscillator::Oscillator;
 use crate::synth_template::{SynthTrait, SynthTraitDefault};
 use crate::util::{distort, lerp, scale};
@@ -70,29 +69,17 @@ impl<T: Iterator<Item = Note>> SynthTrait for Synth<T> {
     }
 }
 
+#[derive(Default)]
 struct MidiSynth {
-    receiver: mpsc::Receiver<SimpleMidiMessage>,
-    connection: MidiInputConnection<()>,
+    input: MidiInput,
     voice: Option<Voice>,
     current_note: Option<Note>,
-}
-
-impl Default for MidiSynth {
-    fn default() -> Self {
-        let (receiver, connection) = open_midi_input();
-        Self {
-            receiver,
-            connection,
-            voice: None,
-            current_note: None,
-        }
-    }
 }
 
 impl SynthTrait for MidiSynth {
     fn next(&mut self, osc: &Oscillator) -> Option<f32> {
         // idk whether to process all messages at once or only one per sample
-        match self.receiver.try_recv() {
+        match self.input.try_recv() {
             Ok(SimpleMidiMessage::NoteOn(note)) => {
                 dbg!();
                 osc.reset();
@@ -100,9 +87,7 @@ impl SynthTrait for MidiSynth {
                 self.voice.replace(Voice(note.to_freq_f32()));
                 self.current_note.replace(note);
             }
-            Ok(SimpleMidiMessage::NoteOff(note))
-                if self.current_note.map(|curr| curr == note) == Some(true) =>
-            {
+            Ok(SimpleMidiMessage::NoteOff(note)) if self.current_note == Some(note) => {
                 dbg!();
                 // self.voice.take();
                 osc.release();
