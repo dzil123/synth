@@ -18,6 +18,7 @@ impl ADSRParams {
         assert!(0.0 <= self.sustain_percent && self.sustain_percent <= 1.0);
         assert!(self.sustain_length >= 0.0);
         assert!(self.release_length >= 0.0);
+        assert!(self.quiet_length >= 0.0);
     }
 
     pub fn build(self) -> ADSR {
