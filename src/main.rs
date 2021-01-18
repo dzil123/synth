@@ -105,6 +105,12 @@ impl Default for VoiceNode {
     }
 }
 
+#[track_caller]
+fn dbg<T: std::fmt::Debug>(v: T) {
+    let loc = std::panic::Location::caller();
+    println!("[{}:{}] = {:?}", loc.file(), loc.line(), v);
+}
+
 // implementation from http://gameprogrammingpatterns.com/object-pool.html#a-free-list
 struct VoiceArray {
     voices: [VoiceNode; Self::SIZE],
@@ -113,6 +119,16 @@ struct VoiceArray {
 
 impl VoiceArray {
     const SIZE: usize = 32;
+
+    fn dbg(&self) {
+        dbg((
+            self.free,
+            self.voices
+                .iter()
+                .map(|voice| voice.free())
+                .collect::<Vec<_>>(),
+        ));
+    }
 
     fn next(&mut self, osc: &Oscillator) -> Option<f32> {
         let mut full_sample = 0.0;
