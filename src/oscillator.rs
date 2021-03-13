@@ -151,7 +151,7 @@ impl Oscillator {
     }
 
     #[track_caller]
-    pub fn adsr(&self, adsr_params: ADSRParams) -> ADSRImposter {
+    pub fn adsr(&self, adsr_params: ADSRParams) -> ADSRMock {
         let loc = Index::location();
         let mut hashmap: RefMut<HashMap<RefCell<ADSR>>> = self.hashmap_mut();
 
@@ -159,7 +159,7 @@ impl Oscillator {
             hashmap.insert(loc, RefCell::new(adsr_params.build()));
         }
 
-        ADSRImposter(self, loc)
+        ADSRMock(self, loc)
     }
 
     fn adsr_impl<T, U>(&self, loc: Index, func: T) -> U
@@ -198,9 +198,9 @@ impl Oscillator {
     }
 }
 
-pub struct ADSRImposter<'a>(&'a Oscillator, Index);
+pub struct ADSRMock<'a>(&'a Oscillator, Index);
 
-impl<'a> ADSRImposter<'a> {
+impl<'a> ADSRMock<'a> {
     fn inner<T: FnOnce(&mut ADSR) -> U, U>(&self, func: T) -> U {
         self.0.adsr_impl(self.1, func)
     }
